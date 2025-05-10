@@ -44,6 +44,9 @@ jobs:
     needs: integration
     name: optimize_model
     runs-on: ubuntu-latest
+    env:
+      REGISTRY: "242014538492.dkr.ecr.eu-west-1.amazonaws.com"
+      REPOSITORY: "university/gh-actions"
     steps:
       - name: Checkout code repo
         # this action clones current repository to the VM where our job is running
@@ -81,8 +84,6 @@ jobs:
 
       - name: Push Docker image
         env:
-          REGISTRY: "242014538492.dkr.ecr.eu-west-1.amazonaws.com"
-          REPOSITORY: "university/gh-actions"
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker tag polish-sentiment-app-onnx:latest $REGISTRY/$REPOSITORY:$IMAGE_TAG
