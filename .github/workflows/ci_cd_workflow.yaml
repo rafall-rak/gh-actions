@@ -41,6 +41,7 @@ jobs:
            run: uv run pytest tests
    deployment:
       if:  ${{ inputs.steps == 'all' }}
+      needs: integration
       name: optimize_model
       runs-on: ubuntu-latest
       steps:
