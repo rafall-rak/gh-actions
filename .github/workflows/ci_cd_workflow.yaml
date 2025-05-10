@@ -2,65 +2,90 @@
 
 name: CI/CD workflow
 
-on: 
-   workflow_dispatch:
-      inputs:
-         steps:
-            description: 'Select steps to run'
-            required: true
-            type: choice
-            options:
-               - integration
-               - all
-            default: all
+on:
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: "Select steps to run"
+        required: true
+        type: choice
+        options:
+          - integration
+          - all
+        default: all
 
 jobs:
-   integration:
-      if:  ${{ inputs.steps == 'integration' || inputs.steps == 'all' }}
-      name: checks_and_tests
-      runs-on: ubuntu-latest
-      steps:
-         - name: Checkout code repo
-           # this action clones current repository to the VM where our job is running
-           # https://github.com/actions/checkout
-           uses: actions/checkout@v4
-           
-         - name: Setup uv
-           run: curl -LsSf https://astral.sh/uv/install.sh | sh
-           
-         - name: Install dependencies
-           run: uv sync --group integration
-           
-         - name: Run ruff check
-           run: uv run ruff check
-           
-         - name: Run pip-audit
-           run: uv run pip-audit --vulnerability-service pypi
+  integration:
+    if: ${{ inputs.steps == 'integration' || inputs.steps == 'all' }}
+    name: checks_and_tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code repo
+        # this action clones current repository to the VM where our job is running
+        # https://github.com/actions/checkout
+        uses: actions/checkout@v4
 
-         - name: Run PyTest
-           run: uv run pytest tests
-   deployment:
-      if:  ${{ inputs.steps == 'all' }}
-      needs: integration
-      name: optimize_model
-      runs-on: ubuntu-latest
-      steps:
-         - name: Checkout code repo
-         # this action clones current repository to the VM where our job is running
-         # https://github.com/actions/checkout
-           uses: actions/checkout@v4
-           
-         - name: Setup uv
-           run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Setup uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
 
-         - name: Install dependencies
-           run: uv sync --group deployment
+      - name: Install dependencies
+        run: uv sync --group integration
 
-         - name: Download model
-           run: uv run python main.py --script download
+      - name: Run ruff check
+        run: uv run ruff check
 
-         - name: Export model
-           run: uv run python main.py --script export
+      - name: Run pip-audit
+        run: uv run pip-audit --vulnerability-service pypi
 
-         - name: Build Docker image
-           run: docker build -t polish-sentiment-app-onnx:latest .
+      - name: Run PyTest
+        run: uv run pytest tests
+  deployment:
+    if: ${{ inputs.steps == 'all' }}
+    needs: integration
+    name: optimize_model
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code repo
+        # this action clones current repository to the VM where our job is running
+        # https://github.com/actions/checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install dependencies
+        run: uv sync --group deployment
+
+      - name: Download model
+        run: uv run python main.py --script download
+
+      - name: Export model
+        run: uv run python main.py --script export
+
+      - name: Build Docker image
+        run: docker build -t polish-sentiment-app-onnx:latest .
+
+      - name: Set up AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ # secrets.YOUR_SECRET }}
+          aws-secret-access-key: ${{ # use secrets context }}
+          aws-session-token: ${{ # use secrets context }}
+          aws-region: us-west-1
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          mask-password: "true"
+
+      - name: Push Docker image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: "university/gh-actions"
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker tag polish-sentiment-app-onnx:latest $REGISTRY/$REPOSITORY:$IMAGE_TAG
+          docker tag polish-sentiment-app-onnx:latest $REGISTRY/$REPOSITORY:latest
+          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+          docker push $REGISTRY/$REPOSITORY:latest
